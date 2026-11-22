@@ -170,7 +170,7 @@
 <script type="text/plain" id="worker-src">
 // Model worker, inlined so the app is one file: loads the model and generates
 // replies off the main thread so the page stays responsive.
-import { pipeline, TextStreamer, InterruptableStoppingCriteria, env }
+import { pipeline, TextStreamer, InterruptableStoppingCriteria, LogitsProcessor, env }
   from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
 
 env.allowLocalModels = false;   // GitHub Pages doesn't host the weights; always fetch from Hugging Face
@@ -199,8 +199,35 @@ async function load({ modelId, device, dtype, fallback }) {
   }
 }
 
+// Stops loops by banning any token that would repeat a phrase of `size` tokens already in this reply.
+// Unlike the built-in repetition_penalty, it looks only at the reply being written, not at the
+// prompt, so it never discourages the end-of-reply token or the words of the character prompt.
+class ReplyNoRepeatNGram extends LogitsProcessor {
+  constructor(size, keep) { super(); this.size = size; this.keep = keep; this.start = null; }
+  _call(input_ids, logits) {
+    for (let i = 0; i < input_ids.length; ++i) {
+      const ids = input_ids[i].map(Number);
+      this.start ??= ids.length;                    // the first call sees only the prompt
+      const reply = ids.slice(this.start), n = this.size;
+      if (reply.length < n) continue;
+      const prefix = reply.slice(-(n - 1)).join(",");
+      const data = logits[i].data;
+      for (let j = 0; j + n <= reply.length; ++j) {
+        if (reply.slice(j, j + n - 1).join(",") === prefix) {
+          const banned = reply[j + n - 1];
+          if (!this.keep.has(banned)) data[banned] = -Infinity;
+        }
+      }
+    }
+    return logits;
+  }
+}
+
 async function generate({ messages, options }) {
   stopper.reset();
+  const { reply_no_repeat_ngram_size: size, ...genOptions } = options;
+  const eos = [generator.model.generation_config?.eos_token_id ?? []].flat().map(Number);
+  const logits_processor = size ? [new ReplyNoRepeatNGram(size, new Set(eos))] : [];
   let text = "";
   const streamer = new TextStreamer(generator.tokenizer, {
     skip_prompt: true,
@@ -208,7 +235,7 @@ async function generate({ messages, options }) {
     callback_function: (t) => { text += t; self.postMessage({ type: "token", text }); },
   });
   try {
-    await generator(messages, { ...options, streamer, stopping_criteria: stopper });
+    await generator(messages, { ...genOptions, logits_processor, streamer, stopping_criteria: stopper });
     self.postMessage({ type: "done", text });
   } catch (err) {
     self.postMessage({ type: "error", message: String(err?.message || err), during: "generate" });
@@ -233,7 +260,11 @@ const ONNX_FILE = { q4f16: "model_q4f16.onnx", q4: "model_q4.onnx", q8: "model_q
 const MAX_EXCHANGES = 3;          // 3 guest + 3 Ashby messages
 const MAX_CHARS_PER_MSG = 600;    // long messages are clipped in the history sent to the model
 // Short, focused replies: a small model rambles and loops if given room to.
-const GEN_OPTIONS = { max_new_tokens: 120, do_sample: true, temperature: 0.6, top_p: 0.85, repetition_penalty: 1.15 };
+// - top_k keeps sampling to likely words. (Transformers.js ignores top_p, so top_k does that job.)
+// - repetition_penalty stays at 1.0: Transformers.js applies it to the whole prompt as well, which
+//   discourages the end-of-reply token and makes replies run on.
+// - reply_no_repeat_ngram_size: our own loop guard, applied only to the reply being written (see the worker).
+const GEN_OPTIONS = { max_new_tokens: 110, do_sample: true, temperature: 0.5, top_k: 20, repetition_penalty: 1.0, reply_no_repeat_ngram_size: 4 };
 const MAX_SENTENCES = 4;          // generation is stopped once a reply passes this many sentences
 
 const SYSTEM_PROMPT =
