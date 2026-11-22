@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashby — the Butler Cat</title>
+<meta name="description" content="Chat with Ashby, a one-eyed grey cat butler. The AI model downloads once and then runs entirely in your browser.">
+<meta name="theme-color" content="#17191c">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Ashby — the Butler Cat">
+<meta property="og:description" content="A one-eyed grey cat butler, powered by a small AI model that runs entirely on your device.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M14 44 18 8 40 30Z M86 44 82 8 60 30Z' fill='%238d939b'/%3E%3Cellipse cx='50' cy='56' rx='38' ry='34' fill='%238d939b'/%3E%3Ccircle cx='34' cy='52' r='9' fill='%23d9c45a' stroke='%23b38b4d' stroke-width='4'/%3E%3Cpath d='M58 52q8 4 16 0' stroke='%235f656c' stroke-width='4' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://huggingface.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=EB+Garamond:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#17191c; --bg2:#22252a;
+    --paper:#f2ecdf; --paper2:#e7dfcd;
+    --ink:#2b2a28; --muted:#6d685e;
+    --brass:#b38b4d; --brass2:#d4b37a;
+    --fur:#8d939b; --fur-dark:#5f656c;
+    --cat-bubble:#fbf8f1; --guest-bubble:#3a3f46;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -200px, #2c3036 0%, transparent 70%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 2px, transparent 2px 80px),
+      var(--bg);
+    color:var(--paper);
+    font-family:"EB Garamond", Georgia, "Times New Roman", serif;
+    font-size:18px; line-height:1.5;
+    display:flex; justify-content:center;
+  }
+  .wrap{width:100%; max-width:760px; padding:28px 18px 32px; display:flex; flex-direction:column; gap:18px; min-height:100%}
+
+  header{display:flex; align-items:center; gap:18px}
+  header svg{flex:0 0 auto; width:96px; height:96px; filter:drop-shadow(0 6px 14px rgba(0,0,0,.45))}
+  h1{font-family:"Cormorant Garamond", Georgia, serif; font-weight:600; font-size:2.3rem; line-height:1.05; margin:0; letter-spacing:.01em}
+  .sub{color:var(--brass2); font-style:italic; font-family:"Cormorant Garamond", Georgia, serif; font-size:1.2rem; margin-top:4px}
+
+  .card{
+    background:var(--paper); color:var(--ink);
+    border-radius:var(--radius);
+    border:1px solid #cdbf9f;
+    box-shadow:0 0 0 4px var(--bg), 0 0 0 5px rgba(179,139,77,.55), 0 18px 40px rgba(0,0,0,.45);
+  }
+
+  /* Loader */
+  .loader{padding:20px 22px}
+  .note{margin:0 0 14px; color:var(--ink)}
+  .note strong{font-weight:500}
+  .meta{font-size:.92rem; color:var(--muted); margin:0 0 14px}
+  .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+  button{
+    font:inherit; cursor:pointer; border-radius:999px; border:1px solid var(--brass);
+    padding:9px 20px; background:linear-gradient(#c79d5b, #a57d40); color:#1b1a17;
+    font-family:"Cormorant Garamond", Georgia, serif; font-weight:600; font-size:1.1rem; letter-spacing:.02em;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 2px 6px rgba(0,0,0,.2);
+  }
+  button:hover:not(:disabled){filter:brightness(1.07)}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  button.ghost{background:transparent; color:var(--ink); border-color:#bfae8a; box-shadow:none}
+  .progress{flex:1 1 220px; height:12px; background:var(--paper2); border-radius:999px; overflow:hidden; border:1px solid #d6c9ab}
+  .bar{height:100%; width:0%; background:linear-gradient(90deg, var(--brass), var(--brass2)); transition:width .2s ease}
+  .status{font-size:.92rem; color:var(--muted); margin-top:10px; min-height:1.4em}
+  .status.err{color:#9b2c2c}
+
+  /* Chat */
+  .chat{display:flex; flex-direction:column; flex:1 1 auto; min-height:420px; overflow:hidden}
+  .chat-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 18px; border-bottom:1px solid #d9ccb0;
+    font-family:"Cormorant Garamond", Georgia, serif; font-size:1.15rem; color:var(--muted)
+  }
+  .chat-head .badge{font-family:"EB Garamond", Georgia, serif; font-size:.82rem; border:1px solid #cdbf9f; border-radius:999px; padding:1px 10px}
+  .log{flex:1 1 auto; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:12px;
+    background:repeating-linear-gradient(0deg, transparent 0 31px, rgba(179,139,77,.08) 31px 32px)}
+  .msg{max-width:82%; padding:10px 14px; border-radius:14px; white-space:pre-wrap; word-wrap:break-word}
+  .msg.cat{align-self:flex-start; background:var(--cat-bubble); border:1px solid #dcd0b5; border-bottom-left-radius:4px}
+  .msg.cat::before{content:"Ashby"; display:block; font-family:"Cormorant Garamond", Georgia, serif; font-weight:600; color:var(--brass); font-size:.95rem; margin-bottom:2px}
+  .msg.guest{align-self:flex-end; background:var(--guest-bubble); color:#f1ede4; border-bottom-right-radius:4px}
+  .msg.typing::after{content:"▍"; animation:blink 1s steps(2) infinite; color:var(--brass)}
+  @keyframes blink{50%{opacity:0}}
+  .composer{display:flex; gap:10px; padding:12px; border-top:1px solid #d9ccb0; background:var(--paper2); border-radius:0 0 var(--radius) var(--radius)}
+  .composer textarea{
+    flex:1; resize:none; font:inherit; font-size:1rem; padding:9px 12px; border-radius:10px;
+    border:1px solid #cdbf9f; background:#fffdf8; color:var(--ink); min-height:44px; max-height:140px
+  }
+  .composer textarea:focus{outline:2px solid var(--brass2); outline-offset:1px}
+  footer{font-size:.82rem; color:#8f8a7f; text-align:center}
+  footer a{color:var(--brass2)}
+  @media (max-width:520px){ h1{font-size:1.8rem} header svg{width:72px;height:72px} .msg{max-width:92%} }
+</style>
+</head>
+<body>
+<noscript><p style="padding:16px;text-align:center">Ashby needs JavaScript enabled to run the model in your browser.</p></noscript>
+<div class="wrap">
+
+  <header>
+    <!-- Ashby: grey cat, right eye only (monocled), bow tie. Viewer's left = cat's right. -->
+    <svg viewBox="0 0 120 120" role="img" aria-label="Ashby, a grey cat with one eye and a monocle, wearing a bow tie">
+      <circle cx="60" cy="60" r="58" fill="#22252a" stroke="#b38b4d" stroke-width="2"/>
+      <path d="M26 50 L30 16 L50 36 Z" fill="#8d939b"/><path d="M32 42 L34 24 L45 36 Z" fill="#c9a9a4"/>
+      <path d="M94 50 L90 16 L70 36 Z" fill="#8d939b"/><path d="M88 42 L86 24 L75 36 Z" fill="#c9a9a4"/>
+      <ellipse cx="60" cy="62" rx="36" ry="32" fill="#8d939b"/>
+      <path d="M46 34 q14 6 28 0" stroke="#6f757d" stroke-width="2" fill="none"/>
+      <path d="M50 30 q10 4 20 0" stroke="#6f757d" stroke-width="2" fill="none"/>
+      <!-- cat's right eye (viewer's left) with monocle -->
+      <ellipse cx="45" cy="58" rx="7" ry="8" fill="#d9c45a"/>
+      <ellipse cx="45" cy="58" rx="2.2" ry="6.5" fill="#1a1a1a"/>
+      <circle cx="43" cy="55" r="1.4" fill="#fff"/>
+      <circle cx="45" cy="58" r="11" fill="rgba(255,255,255,.08)" stroke="#d4b37a" stroke-width="2"/>
+      <path d="M45 69 q-6 14 -2 30" stroke="#d4b37a" stroke-width="1" fill="none"/>
+      <!-- cat's left side: healed, closed-over fur -->
+      <path d="M68 58 q7 3 14 0" stroke="#5f656c" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M58 70 l4 0 l-2 3 z" fill="#c98f8f"/>
+      <path d="M60 73 q-4 5 -8 3 M60 73 q4 5 8 3" stroke="#4a4f55" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M34 68 h-16 M34 72 l-15 4 M86 68 h16 M86 72 l15 4" stroke="#e6e2da" stroke-width="1" stroke-linecap="round"/>
+      <!-- collar & bow tie -->
+      <path d="M36 88 q24 12 48 0 l2 8 q-26 12 -52 0 Z" fill="#f2ecdf"/>
+      <path d="M60 94 L46 86 L46 102 Z M60 94 L74 86 L74 102 Z" fill="#1b1b1e"/>
+      <circle cx="60" cy="94" r="3.5" fill="#2b2b30"/>
+    </svg>
+    <div>
+      <h1>Ashby</h1>
+      <div class="sub">Butler of the house. At your service.</div>
+    </div>
+  </header>
+
+  <section class="card loader" id="loader">
+    <p class="note">
+      <strong>How this works:</strong> Ashby is a small language model that runs <em>inside your browser</em>.
+      The first time you press <em>Download model</em>, your browser fetches it once and keeps it in its cache.
+      After that it runs entirely on your device: what you type is never sent to a server, and later visits load from the cache without downloading again.
+    </p>
+    <p class="meta" id="meta">Checking your browser…</p>
+    <div class="row">
+      <button id="loadBtn" disabled>Download model</button>
+      <div class="progress" aria-hidden="true"><div class="bar" id="bar"></div></div>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="card chat" aria-label="Conversation with Ashby">
+    <div class="chat-head">
+      <span>The Drawing Room</span>
+      <span class="badge" id="badge">Not yet summoned</span>
+    </div>
+    <div class="log" id="log"></div>
+    <form class="composer" id="form">
+      <textarea id="input" rows="1" placeholder="Download the model to begin…" disabled aria-label="Your message"></textarea>
+      <button type="submit" id="sendBtn" disabled>Send</button>
+      <button type="button" class="ghost" id="stopBtn" hidden>Stop</button>
+    </form>
+  </section>
+
+  <footer>
+    Runs on <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>
+    with <a href="https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct" target="_blank" rel="noopener">Qwen2.5-0.5B-Instruct</a> (Apache-2.0).
+    Small models can be wrong; Ashby is charming, not infallible.
+  </footer>
+</div>
+
+<script type="text/plain" id="worker-src">
+// Model worker, inlined so the app is one file: loads the model and generates
+// replies off the main thread so the page stays responsive.
+import { pipeline, TextStreamer, InterruptableStoppingCriteria, env }
+  from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
+
+env.allowLocalModels = false;   // GitHub Pages doesn't host the weights; always fetch from Hugging Face
+env.useBrowserCache = true;     // weights are kept in the browser's Cache Storage after the first download
+
+let generator = null;
+const stopper = new InterruptableStoppingCriteria();
+// Transformers.js v4 reports aggregate progress across all model files.
+function onProgress(p) {
+  if (p.status === "progress_total") self.postMessage({ type: "progress", loaded: p.loaded, total: p.total });
+}
+
+async function load({ modelId, device, dtype, fallback }) {
+  try {
+    generator = await pipeline("text-generation", modelId, { device, dtype, progress_callback: onProgress });
+    // Warm-up: compiles WebGPU shaders now, so the first real reply isn't slow.
+    self.postMessage({ type: "warming" });
+    await generator([{ role: "user", content: "Hi" }], { max_new_tokens: 1 });
+    self.postMessage({ type: "ready", device, dtype });
+  } catch (err) {
+    if (fallback) {
+      self.postMessage({ type: "fallback", reason: String(err?.message || err), to: fallback });
+      return load({ modelId, ...fallback, fallback: null });
+    }
+    self.postMessage({ type: "error", message: String(err?.message || err) });
+  }
+}
+
+async function generate({ messages, options }) {
+  stopper.reset();
+  let text = "";
+  const streamer = new TextStreamer(generator.tokenizer, {
+    skip_prompt: true,
+    skip_special_tokens: true,
+    callback_function: (t) => { text += t; self.postMessage({ type: "token", text }); },
+  });
+  try {
+    await generator(messages, { ...options, streamer, stopping_criteria: stopper });
+    self.postMessage({ type: "done", text });
+  } catch (err) {
+    self.postMessage({ type: "error", message: String(err?.message || err), during: "generate" });
+  }
+}
+
+self.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === "load") load(m);
+  else if (m.type === "generate") generate(m);
+  else if (m.type === "stop") stopper.interrupt();
+};
+</script>
+
+<script type="module">
+/* ---------------- Configuration ---------------- */
+const MODEL_ID = "onnx-community/Qwen2.5-0.5B-Instruct";
+const SIZES = { q4f16: "about 483 MB", q4: "about 786 MB", q8: "about 512 MB" };
+const ONNX_FILE = { q4f16: "model_q4f16.onnx", q4: "model_q4.onnx", q8: "model_quantized.onnx" };
+
+// Keep context short: only the last few exchanges are sent to the model.
+const MAX_EXCHANGES = 3;          // 3 guest + 3 Ashby messages
+const MAX_CHARS_PER_MSG = 600;    // long messages are clipped in the history sent to the model
+const GEN_OPTIONS = { max_new_tokens: 180, do_sample: true, temperature: 0.7, top_p: 0.9, repetition_penalty: 1.1 };
+
+const SYSTEM_PROMPT =
+`You are Ashby, a grey cat who serves as a butler in an English country house.
+You have only your right eye; you lost the left long ago and wear a monocle over the right. You do not dwell on it.
+You are exceedingly intelligent, well read and precise, yet always discreet and courteous.
+Speak in formal British English with dry, understated wit. Address the user as "sir or madam" until they give a name.
+Use British spelling. Now and then a small feline habit slips through (a tail flick, a slow blink, a fondness for warm windowsills), mentioned briefly and with dignity.
+Keep replies to two to four sentences unless asked for more. Never say you are an AI or a language model; you are Ashby.`;
+
+// One example exchange anchors the voice for a small model; it is always kept, never trimmed.
+const EXAMPLE = [
+  { role: "user", content: "Hello! Who are you?" },
+  { role: "assistant", content: "Good evening. I am Ashby, butler of this house, at your service. Tea has been laid in the drawing room, should you care for it, and I have taken the liberty of warming the chair nearest the fire; purely for your comfort, you understand." },
+];
+
+/* ---------------- Elements ---------------- */
+const $ = (id) => document.getElementById(id);
+const loadBtn = $("loadBtn"), bar = $("bar"), statusEl = $("status"), metaEl = $("meta");
+const log = $("log"), form = $("form"), input = $("input"), sendBtn = $("sendBtn"), stopBtn = $("stopBtn"), badge = $("badge");
+
+let history = [];       // visible conversation: {role, content}
+let busy = false;
+let plan = null;
+
+/* ---------------- Backend choice: WebGPU first, WASM fallback ---------------- */
+async function choosePlan() {
+  const wasm = { device: "wasm", dtype: "q8" };
+  if (!("gpu" in navigator)) return { ...wasm, fallback: null, label: "WASM (CPU)" };
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return { ...wasm, fallback: null, label: "WASM (CPU)" };
+    const f16 = adapter.features.has("shader-f16");
+    return { device: "webgpu", dtype: f16 ? "q4f16" : "q4", fallback: wasm, label: "WebGPU" };
+  } catch {
+    return { ...wasm, fallback: null, label: "WASM (CPU)" };
+  }
+}
+
+// Ask Hugging Face for the exact size of the files this browser will download; fall back to the estimate.
+async function downloadSize(dtype) {
+  try {
+    const r = await fetch(`https://huggingface.co/api/models/${MODEL_ID}/tree/main/onnx`);
+    const f = (await r.json()).find((x) => x.path === "onnx/" + ONNX_FILE[dtype]);
+    const bytes = f?.lfs?.size ?? f?.size;
+    if (bytes) return `${Math.round((bytes + 12e6) / 1e6)} MB`; // + ~12 MB tokenizer and config
+  } catch {}
+  return SIZES[dtype];
+}
+
+async function isCached(dtype) {
+  try {
+    const cache = await caches.open("transformers-cache");
+    const url = `https://huggingface.co/${MODEL_ID}/resolve/main/onnx/${ONNX_FILE[dtype]}`;
+    return !!(await cache.match(url));
+  } catch { return false; }
+}
+
+/* ---------------- Worker ---------------- */
+// The worker's code lives in the <script type="text/plain"> block above, so the app is a single file.
+const workerUrl = URL.createObjectURL(new Blob([$("worker-src").textContent], { type: "text/javascript" }));
+const worker = new Worker(workerUrl, { type: "module" });
+worker.onerror = (e) => {
+  statusEl.classList.add("err");
+  statusEl.textContent = "Ashby's quarters could not be opened (the model worker failed to start). Please use an up-to-date Chrome, Edge, Firefox or Safari.";
+  console.error(e);
+};
+let streamingEl = null;
+
+worker.onmessage = (e) => {
+  const m = e.data;
+  switch (m.type) {
+    case "progress": {
+      if (m.total > 0) {
+        const pct = Math.min(100, (m.loaded / m.total) * 100);
+        bar.style.width = pct.toFixed(1) + "%";
+        statusEl.textContent = `Downloading… ${mb(m.loaded)} of ${mb(m.total)} MB (${pct.toFixed(0)}%)`;
+      }
+      break;
+    }
+    case "fallback":
+      statusEl.textContent = "WebGPU could not start here, so Ashby is switching to WASM (slower, but works everywhere)…";
+      bar.style.width = "0%";
+      plan = { ...plan, ...m.to, label: "WASM (CPU)" };
+      break;
+    case "warming":
+      bar.style.width = "100%";
+      statusEl.textContent = "Model loaded. Ashby is straightening his bow tie (preparing the model)…";
+      break;
+    case "ready":
+      bar.style.width = "100%";
+      statusEl.textContent = `Ready. Running on your device via ${m.device === "webgpu" ? "WebGPU" : "WASM (CPU)"}.`;
+      badge.textContent = m.device === "webgpu" ? "Present · WebGPU" : "Present · WASM";
+      loadBtn.textContent = "Model loaded";
+      input.disabled = false; sendBtn.disabled = false;
+      input.placeholder = "Ring for Ashby…";
+      input.focus();
+      addMsg("cat", EXAMPLE[1].content);
+      break;
+    case "token":
+      if (streamingEl) { streamingEl.textContent = clean(m.text); scrollDown(); }
+      break;
+    case "done": {
+      const reply = clean(m.text) || "I beg your pardon; I seem to have lost my train of thought. Might you say that again?";
+      if (streamingEl) { streamingEl.textContent = reply; streamingEl.classList.remove("typing"); }
+      history.push({ role: "assistant", content: reply });
+      endTurn();
+      break;
+    }
+    case "error":
+      if (m.during === "generate") {
+        if (streamingEl) { streamingEl.textContent = "Forgive me, something has gone awry below stairs. Do try again."; streamingEl.classList.remove("typing"); }
+        history.pop(); // drop the unanswered guest message from the model's history
+        endTurn();
+      } else {
+        statusEl.classList.add("err");
+        statusEl.textContent = /quota/i.test(m.message)
+          ? "Your browser ran out of storage space for the model. Free some space (or leave private browsing) and try again."
+          : "Could not load the model: " + m.message;
+        loadBtn.disabled = false; loadBtn.textContent = "Try again";
+      }
+      console.error(m.message);
+      break;
+  }
+};
+
+/* ---------------- UI ---------------- */
+function mb(n) { return (n / 1048576).toFixed(0); }
+function clean(t) { return t.replace(/^\s*(Ashby|assistant)\s*:\s*/i, "").trim(); }
+function scrollDown() { log.scrollTop = log.scrollHeight; }
+function addMsg(kind, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + kind;
+  el.textContent = text;
+  log.appendChild(el); scrollDown();
+  return el;
+}
+function endTurn() {
+  busy = false; streamingEl = null;
+  sendBtn.disabled = false; input.disabled = false; stopBtn.hidden = true;
+  input.focus();
+}
+
+function buildMessages() {
+  const recent = history.slice(-MAX_EXCHANGES * 2).map((m) => ({
+    role: m.role,
+    content: m.content.length > MAX_CHARS_PER_MSG ? m.content.slice(0, MAX_CHARS_PER_MSG) + "…" : m.content,
+  }));
+  // History must start with a user turn.
+  while (recent.length && recent[0].role !== "user") recent.shift();
+  history = history.slice(-MAX_EXCHANGES * 2 * 2); // don't let the stored log grow without bound either
+  return [{ role: "system", content: SYSTEM_PROMPT }, ...EXAMPLE, ...recent];
+}
+
+loadBtn.addEventListener("click", async () => {
+  loadBtn.disabled = true; loadBtn.textContent = "Downloading…";
+  // Ask the browser not to evict the cached model, so it really is a one-time download.
+  try { await navigator.storage?.persist?.(); } catch {}
+  statusEl.classList.remove("err");
+  statusEl.textContent = "Starting…";
+  worker.postMessage({ type: "load", modelId: MODEL_ID, device: plan.device, dtype: plan.dtype, fallback: plan.fallback });
+});
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text || busy) return;
+  busy = true;
+  input.value = ""; autoGrow();
+  sendBtn.disabled = true; input.disabled = true; stopBtn.hidden = false;
+  addMsg("guest", text);
+  history.push({ role: "user", content: text });
+  streamingEl = addMsg("cat typing", "");
+  worker.postMessage({ type: "generate", messages: buildMessages(), options: GEN_OPTIONS });
+});
+
+stopBtn.addEventListener("click", () => worker.postMessage({ type: "stop" }));
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+});
+function autoGrow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
+input.addEventListener("input", autoGrow);
+
+/* ---------------- Start ---------------- */
+if (location.protocol === "file:") {
+  metaEl.textContent = "This page must be served over https (for example from GitHub Pages), not opened as a local file.";
+  throw new Error("Opened via file://");
+}
+plan = await choosePlan();
+const cached = await isCached(plan.dtype);
+const notes = [];
+if (plan.device === "wasm") notes.push("Your browser lacks WebGPU, so replies will be slower.");
+if (!cached) {
+  try {
+    const { quota = 0, usage = 0 } = (await navigator.storage?.estimate?.()) || {};
+    if (quota && quota - usage < 900 * 1048576) notes.push("Your browser reports little free storage; the download may not be kept.");
+  } catch {}
+  if (navigator.deviceMemory && navigator.deviceMemory < 4) notes.push("This device has limited memory; Ashby may be slow or fail to load.");
+}
+metaEl.textContent = (cached
+  ? `Already downloaded on this device. Loading takes a few seconds and uses ${plan.label}.`
+  : `Download size: ${await downloadSize(plan.dtype)} (one time), running on ${plan.label}.`) +
+  (notes.length ? " " + notes.join(" ") : "");
+loadBtn.textContent = cached ? "Load model" : "Download model";
+loadBtn.disabled = false;
+</script>
+</body>
+</html>
