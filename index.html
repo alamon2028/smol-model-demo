@@ -232,7 +232,9 @@ const ONNX_FILE = { q4f16: "model_q4f16.onnx", q4: "model_q4.onnx", q8: "model_q
 // Keep context short: only the last few exchanges are sent to the model.
 const MAX_EXCHANGES = 3;          // 3 guest + 3 Ashby messages
 const MAX_CHARS_PER_MSG = 600;    // long messages are clipped in the history sent to the model
-const GEN_OPTIONS = { max_new_tokens: 180, do_sample: true, temperature: 0.7, top_p: 0.9, repetition_penalty: 1.1 };
+// Short, focused replies: a small model rambles and loops if given room to.
+const GEN_OPTIONS = { max_new_tokens: 120, do_sample: true, temperature: 0.6, top_p: 0.85, repetition_penalty: 1.15 };
+const MAX_SENTENCES = 4;          // generation is stopped once a reply passes this many sentences
 
 const SYSTEM_PROMPT =
 `You are Ashby, a grey cat who serves as a butler in an English country house.
@@ -240,7 +242,7 @@ You have only your right eye; you lost the left long ago and wear a monocle over
 You are exceedingly intelligent, well read and precise, yet always discreet and courteous.
 Speak in formal British English with dry, understated wit. Address the user as "sir or madam" until they give a name.
 Use British spelling. Now and then a small feline habit slips through (a tail flick, a slow blink, a fondness for warm windowsills), mentioned briefly and with dignity.
-Keep replies to two to four sentences unless asked for more. Never say you are an AI or a language model; you are Ashby.`;
+Answer in two or three short sentences. Say each thing once, then stop; do not repeat yourself or your earlier replies. Never say you are an AI or a language model; you are Ashby.`;
 
 // One example exchange anchors the voice for a small model; it is always kept, never trimmed.
 const EXAMPLE = [
@@ -255,6 +257,7 @@ const log = $("log"), form = $("form"), input = $("input"), sendBtn = $("sendBtn
 
 let history = [];       // visible conversation: {role, content}
 let busy = false;
+let stopSent = false;     // true once a stop has been sent for the current reply
 let plan = null;
 
 /* ---------------- Backend choice: WebGPU first, WASM fallback ---------------- */
@@ -333,9 +336,11 @@ worker.onmessage = (e) => {
       break;
     case "token":
       if (streamingEl) { streamingEl.textContent = clean(m.text); scrollDown(); }
+      // Cut a rambling reply short once it has said enough.
+      if (!stopSent && sentences(clean(m.text)).complete.length > MAX_SENTENCES) { stopSent = true; worker.postMessage({ type: "stop" }); }
       break;
     case "done": {
-      const reply = clean(m.text) || "I beg your pardon; I seem to have lost my train of thought. Might you say that again?";
+      const reply = tidy(clean(m.text)) || "I beg your pardon; I seem to have lost my train of thought. Might you say that again?";
       if (streamingEl) { streamingEl.textContent = reply; streamingEl.classList.remove("typing"); }
       history.push({ role: "assistant", content: reply });
       endTurn();
@@ -361,6 +366,23 @@ worker.onmessage = (e) => {
 /* ---------------- UI ---------------- */
 function mb(n) { return (n / 1048576).toFixed(0); }
 function clean(t) { return t.replace(/^\s*(Ashby|assistant)\s*:\s*/i, "").trim(); }
+// Split text into complete sentences plus any unfinished tail.
+function sentences(t) {
+  const complete = t.match(/[^.!?…]*[.!?…]+["'”’)]*(\s+|$)/g) || [];
+  return { complete: complete.map((s) => s.trim()).filter(Boolean), tail: t.slice(complete.join("").length).trim() };
+}
+// Drop repeated sentences, cap the length and remove a half-finished last sentence.
+// Only the tidied reply is kept in history, so the model doesn't copy its own loops next turn.
+function tidy(t) {
+  const { complete, tail } = sentences(t);
+  const seen = new Set(), out = [];
+  for (const s of complete) {
+    const key = s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+    if (key && !seen.has(key)) { seen.add(key); out.push(s); }
+  }
+  if (!out.length) return tail;
+  return out.slice(0, MAX_SENTENCES).join(" ");
+}
 function scrollDown() { log.scrollTop = log.scrollHeight; }
 function addMsg(kind, text) {
   const el = document.createElement("div");
@@ -405,6 +427,7 @@ form.addEventListener("submit", (e) => {
   addMsg("guest", text);
   history.push({ role: "user", content: text });
   streamingEl = addMsg("cat typing", "");
+  stopSent = false;
   worker.postMessage({ type: "generate", messages: buildMessages(), options: GEN_OPTIONS });
 });
 
